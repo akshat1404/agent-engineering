@@ -1,0 +1,19 @@
+[book]
+title = "Agent Engineering"
+authors = ["Akshat Tiwari"]
+description = "A ground-up guide to building AI agents — context engineering, tool design, agent patterns, evals, and shipping — as its own discipline, not a slice of frontend or backend work."
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/akshat1404/agent-engineering"
+edit-url-template = "https://github.com/akshat1404/agent-engineering/edit/main/{path}"
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.playground]
+runnable = false
