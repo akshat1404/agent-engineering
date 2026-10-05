@@ -105,7 +105,8 @@ The position of each piece matters as well, and the application decides the posi
 
 ## What Can Go Wrong?
 
-Delimiters work by habit, not enforcement, and the habit leaves a gap. Text inside the tags is still just text. A retrieved document could contain a sentence that reads like an instruction, and nothing hard stops the model from following the sentence. Hijacking a model this way is called prompt injection, and Part 5 covers prompt injection.
+Delimiters work by habit, not enforcement, and the habit leaves a gap. Text inside the tags is still just text. A retrieved document could contain a sentence that reads like an instruction, and nothing hard stops the model from following the sentence. Hijacking a model this way is called prompt injection, and Part 5 covers prompt injection. Till the time the part is published, read this amazing article I have written on Medium about prompt injection : https://medium.com/gitconnected/prompt-injection-does-wrapping-an-email-in-tags-stop-an-attacker-b0df8432de1b
+
 
 ## What Comes Next?
 
