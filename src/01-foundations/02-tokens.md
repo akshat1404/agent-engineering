@@ -132,10 +132,10 @@ In a chatbot, a cut-off reply is visible: the user sees the sentence stop and ca
 
 ```
 create_event({
-  "attendee": "priya@example.com",
+  "attendee": "Elon@example.com",
   "start": "2026-10-13T15:00",
   "duration_minutes": 30,
-  "title": "Sync with Priya",
+  "title": "Sync with Elon",
   "description": "Agenda: review the Q3 report and plan next sprint."
 })
 ```
@@ -144,10 +144,10 @@ Now suppose the developer set `max_tokens` too low for the call. The model runs 
 
 ```
 create_event({
-  "attendee": "priya@example.com",
+  "attendee": "Elon@example.com",
   "start": "2026-10-13T15:00",
   "duration_minutes": 30,
-  "title": "Sync with Priya",
+  "title": "Sync with Elon",
   "description": "Agenda: review the Q3 re
 ```
 
