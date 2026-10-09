@@ -8,6 +8,10 @@ An agent is a program that uses a language model in a loop: the model decides wh
 
 No machine learning background is required. The book treats the model as a component with inputs, outputs, and limits, and stays at that level.
 
+## Medium List
+
+https://medium.com/@akshatmtiwari/list/agentic-ai-engineering-fca004976e79
+
 ## Read It Online
 
 https://akshat1404.github.io/agent-engineering
