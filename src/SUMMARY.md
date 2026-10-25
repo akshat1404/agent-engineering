@@ -11,6 +11,7 @@
 - [Context Windows](01-foundations/04-context-windows.md)
 - [Streaming](01-foundations/05-streaming.md)
 - [Tool Calling](01-foundations/06-tool-calling.md)
+- [Questions](01-foundations/07-interview-questions.md)
 
 # Part 2: Context Engineering
 
