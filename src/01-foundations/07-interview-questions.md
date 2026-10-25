@@ -82,12 +82,43 @@ History                   0    3,050    6,100    9,150   tool call 50 + tool res
 Total                 2,450    5,500    8,550   11,600
 ```
 
-### What Each Fix Targets
+### How Do You Actually Bring The Cost Down?
 
-- **Trimming tool results** shrinks the 3,050 tokens added per round. That number is added to every later call, so trimming is usually the largest saving.
-- **Summarizing or dropping old results** stops the history from growing without limit. Part 2 covers how, including features like auto-compact.
-- **Parallel tool calls** reduce the number of calls in a turn. Two independent lookups requested in one response cost one pass of the loop instead of two.
-- **Prompt caching** does not shrink the prompt. It makes the repeated part of the prompt cheaper to process on each call. Part 2 covers it.
+The total input for a turn is the sum over every call of fixed components plus history. So there are only three levers: make each tool round add fewer tokens, make fewer calls, or make the tokens that are resent cheaper. Every fix below pulls one of those levers.
+
+**1. Trim tool results before they enter the history.** This is usually the largest saving, because every token a tool result adds is paid for again on every later call in the turn. The application, not the model, decides what a tool returns. A `fetch_page` tool that returns a whole 3,000-token product page can instead extract the fields the model needs and return those:
+
+```
+Before: full product page, menus, reviews, footer        ~3,000 tokens
+After:  { "product": "Laptop A", "price": "₹72,999", "in_stock": true }   ~30 tokens
+```
+
+The same idea applies to other tools: return only the matching rows of a database query, cap the number of search results, and return an error message instead of a stack trace. If the model sometimes needs more detail, give it a second, narrower tool, such as `get_specs`, rather than sending everything every time.
+
+Here is the 6-tool-call turn again, with each tool result trimmed from 3,000 tokens to 200, so each round adds 250 tokens instead of 3,050:
+
+```
+Untrimmed: 2,450 + 5,500 + 8,550 + 11,600 + 14,650 + 17,700 + 20,750 = 81,200 input tokens
+Trimmed:   2,450 + 2,700 + 2,950 +  3,200 +  3,450 +  3,700 +  3,950 = 22,400 input tokens
+```
+
+That is about a 72 percent cut, with the same number of tool calls. Trimmed, the 6-call turn costs less than the untrimmed 3-call turn did.
+
+**2. Shrink old history once it has been used.** After the model has read a tool result and used it, the full result rarely needs to stay. The application can replace an old tool result with a short summary, keep only the last few tool rounds in full, or summarize the whole history once it passes a size limit, which is what auto-compact features do. The trade-off is that whatever is removed is gone for later calls, so the application keeps what the task still depends on, such as the prices already collected. Part 2 covers these techniques.
+
+**3. Make fewer calls.** Every call resends the fixed components and the whole history, so a call that never happens is the biggest saving of all.
+
+- **Parallel tool calls.** Independent lookups requested in one response take one pass of the loop instead of several. Comparing three laptops with three parallel calls takes 2 model calls instead of 4.
+- **Better tools.** One `compare_prices(products)` tool that returns three prices replaces three separate `fetch_page` rounds.
+- **A cap on calls per turn.** The application sets a maximum number of loop passes per user message. A task that hits the cap ends with a clear message instead of looping and spending without limit.
+
+**4. Make repeated tokens cheaper with prompt caching.** The system prompt, tool definitions, and earlier history form the same prefix, the opening section of the prompt, on every call in a turn. Prompt caching lets the provider store the processed prefix and reuse it on the next call, and cached input tokens are billed at a fraction of the normal input price. Caching does not shrink the prompt, and the context window still fills at the same rate, but the repeated part costs much less. Part 2 covers how it works and what breaks a cache.
+
+**5. Use a cheaper model where the step allows it.** Not every call needs the most capable model. Simple steps, such as classifying a request or picking which tool to call, can go to a smaller model that costs less per token, while the final answer uses the larger one.
+
+**6. Measure before and after.** The API response reports the input and output tokens for every call, and a token counting API can measure a request before it is sent. Logging tokens per call and per turn shows which tool results are large and which turns loop, so the fix goes where the cost actually is.
+
+In an interview, the strongest answer names the lever first and then the fix: **"The cost is total input tokens across calls, so I would reduce what each tool round adds, reduce the number of calls, and make the repeated prefix cheaper."**
 
 ### Likely Follow-Ups
 
