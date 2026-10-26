@@ -125,3 +125,54 @@ In an interview, the strongest answer names the lever first and then the fix: **
 - **"So is the cost tied to tool calls?"** Only indirectly. A tool call adds tokens to the history and adds another model call to the turn. The bill follows tokens. One exception: some tools run on the provider's side, such as a provider-hosted web search, and can carry a per-use fee on top of tokens. Tools the application runs itself cost nothing extra beyond the tokens their results add.
 - **"Besides cost, what else breaks as history grows?"** The context window. Eventually the input no longer fits, which fails partway through a turn, and well before that point, quality drops from context rot.
 - **"Is input or output the bigger cost here?"** Input. Each call's output is small, around 50 tokens for a tool call, while the input is resent and grows on every call.
+
+---
+
+## Question 2: Why Did The Same Invoices Give Different Dates?
+
+> Your team's invoice-extraction agent reads PDFs, pulls out the due date, and passes it to a `schedule_payment` tool, which books the payment. It passed all 20 test invoices on Monday. On Tuesday, with no code changes and the same 20 invoices, 2 of them come out with the wrong date. A teammate says the code must be broken, since nothing changed. What is actually going on? How would you test this agent so that a result like Monday's means something? And how would you stop a wrong date from reaching `schedule_payment`?
+
+### What Is This Testing?
+
+Whether the candidate knows why model output varies between runs, can design tests for a system whose output varies, and puts safeguards in code instead of trusting the model to check itself. Covered in 1.4 Temperature and Sampling and 1.7 Tool Calling, with evals covered fully in Part 5.
+
+### Why Did The Output Change?
+
+"Non-determinism" is the right label, but an interviewer will ask for the mechanism behind it:
+
+- **Sampling.** The model outputs a probability for every possible next token, and the sampler, the code that picks the token, chooses at random according to those probabilities. When two readings are close, such as `13` and `31` on a smudged PDF, a different pick on one run changes the date, and every token after it.
+- **Variation even at temperature 0.** Temperature is the setting that controls how strongly the sampler favors the most likely token, and 0 means always picking the top one. Even then, hosted models are not fully repeatable, because small differences in how servers batch and compute requests can flip a near-tie. On Anthropic's newest models, temperature cannot be set at all.
+- **Unchanged code is not an unchanged system.** The application's code stayed the same, but the model's output is a draw from probabilities, and the provider may update the model behind a model name over time.
+
+**Monday's 20 out of 20 was also a single sample.** It showed that the agent can pass, not that it passes reliably.
+
+### How Do You Test Something That Varies?
+
+Reducing variation helps, but it cannot reach zero, so the tests have to assume variation and measure it:
+
+- **Run each case several times.** 20 invoices run 10 times each gives 200 results and a pass rate, instead of one pass or fail per invoice. "97 percent overall, and invoice 14 fails 4 runs out of 10" says far more than "20 out of 20".
+- **Set a threshold and re-run it on every change.** A prompt change or a model upgrade ships only if the pass rate stays above the bar, for example 99 percent. A repeatable test suite for model behavior like this is called an eval, and Part 5 covers evals in depth.
+- **Include hard cases on purpose.** Invoices with several dates (issue date, due date, delivery date), ambiguous formats such as `03/04/2026`, and scanned PDFs. Failures cluster in cases like these.
+
+### How Do You Stop A Wrong Date From Being Used?
+
+Asking the model to check its own answer does not make it safe, because the check comes from the same source as the mistake and can fail in the same way. **The safeguard belongs in the application, between the model's tool call and the tool,** because the application decides whether a tool call runs:
+
+- **Constrain the shape of the output.** The tool's input schema, or structured outputs, an API option that makes the model's response follow a given JSON schema, ensures the date arrives in one format such as `YYYY-MM-DD` and never as free text.
+- **Validate in code before calling the tool.** Check that the value is a real date, that it falls on or after the invoice date, and that it lies within a plausible window, such as the next 120 days.
+- **Cross-check where it is cheap.** Extract the date a second time and compare, or compare against a simple pattern match that finds dates in the PDF's text. A disagreement stops the call.
+- **Send uncertain cases to a person.** A payment moves money and is hard to undo, so any date that fails a check goes to human review instead of to `schedule_payment`. A failed check can also go back to the model as a tool result with `is_error: true`, so the model can try again.
+
+### Model Answer
+
+"The model's output is sampled from probabilities, so the same input can produce different outputs, and on a hosted model that does not fully go away even at temperature 0. The code did not change, but every output is a sample, and Monday's 20 out of 20 was a sample too.
+
+I would test the agent by running each invoice several times and tracking the pass rate per invoice and overall, with a threshold that every prompt or model change has to meet, and with hard cases such as multiple dates and ambiguous formats in the set.
+
+To stop a wrong date from reaching `schedule_payment`, I would not rely on the model checking itself. I would constrain the date's format with a schema, validate it in code against the invoice's other dates and a plausible range, cross-check it against a second extraction, and send anything that fails to human review, because a payment is hard to undo."
+
+### Likely Follow-Ups
+
+- **"Why not just set temperature to 0?"** It reduces deliberate randomness but does not remove incidental variation on hosted models, and some newer models do not accept a temperature setting at all. The system still has to be tested and guarded as if outputs vary.
+- **"Why not ask the model to double-check its answer?"** A second look can catch some mistakes, but it is still the model judging the model. Checks that decide whether money moves should be deterministic code, with a person as the fallback.
+- **"What pass rate is good enough?"** It depends on the cost of a mistake. A wrong payment date costs money, so the bar is high and every failure routes to review. A wrong tag on a support ticket is cheap, so a lower bar is acceptable.
