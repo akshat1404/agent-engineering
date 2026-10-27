@@ -222,3 +222,58 @@ Telling the model to ignore instructions in tickets, or wrapping the ticket text
 - **"Wouldn't wrapping the ticket text in tags stop it?"** No. Tags are ordinary text in the same sequence as the attack. The attacker can write a closing tag inside the ticket, or simply write an instruction persuasive enough to be followed. Tags can lower the success rate, so they are worth adding as an extra layer, but the defense has to hold even when the model is fooled.
 - **"Can a better model solve this?"** Newer models resist injection better, but none resist it reliably, and an attacker only needs to succeed once. Defenses that depend on the model behaving will eventually fail, so the guarantees come from code.
 - **"What is the difference between direct and indirect prompt injection?"** In direct injection, the user types the malicious instruction into the chat. In indirect injection, the instruction arrives through content the agent reads, such as a ticket, an email, a web page, or a file, often written by someone who is not the user at all.
+
+---
+
+## Question 4: Why Does The Agent Break On Large Repositories?
+
+> Your coding agent works well on small repositories. On a large one, users report two problems. First, partway through long tasks, the agent crashes with an API error and all its progress is lost. Second, on tasks that do not crash, it starts ignoring rules from its system prompt, such as "never edit files in `/config`", and it re-reads files it already opened earlier in the same task. What is going on, and how would you fix each problem?
+
+### What Is This Testing?
+
+Whether the candidate can tell two different context window failures apart: the hard limit, where a call no longer fits, and the soft limit, where a call fits but quality drops. And whether the candidate fixes each one at the right layer. Covered in 1.5 Context Windows, with context management covered fully in Part 2.
+
+### Why Does The Agent Crash?
+
+The context window is the maximum number of tokens the model can work with in one call, and the prompt and the reply share it. On a large repository, every file the agent opens becomes a large tool result in the conversation history, and the whole history is resent on every call. Partway through a long task, the input alone grows past the window.
+
+When that happens, the API rejects the call with a 400 `invalid_request_error` and the message "prompt is too long". A 400 error means the request itself is invalid, so **sending the same request again produces the same error**. The fix has to make the input smaller.
+
+The progress is lost because the only record of the task lived in that history. Nothing about which files were changed or what was left to do was saved anywhere else.
+
+A related failure happens when the input fits but the reply runs out of room. On newer Claude models, the API accepts the call, the model writes until the window is full, and the response comes back with the stop reason `model_context_window_exceeded`. The reply is cut off and has to be treated as incomplete, not as the answer.
+
+### How Do You Fix The Crash?
+
+- **Count tokens before sending.** Anthropic's token counting API measures a request before it is sent, so the application sees the limit coming instead of hitting it on the call that fails.
+- **Shrink the input before the limit.** Return only the parts of a file the agent needs, such as a line range or the results of a search, instead of whole files. Summarize or drop old file contents once they have been used, which is what auto-compact features do.
+- **Save progress outside the context window.** The application stores the task's state as it goes, such as the files changed, the steps completed, and the steps remaining. A failed call can then resume from the saved state instead of starting over.
+- **Check the stop reason on every response.** Both `max_tokens` and `model_context_window_exceeded` mean the reply is incomplete.
+
+### Why Does The Agent Ignore Rules And Re-Read Files?
+
+The agent is suffering from context rot. Anthropic's documentation describes it as accuracy and recall degrading as the token count grows, where recall is the model's ability to find and use a specific piece of information in its input. On a large repository, the prompt becomes mostly file contents. A one-line rule in the system prompt is a tiny fraction of that input, so it is followed less reliably.
+
+Re-reading files is the same failure seen from the other side. The earlier read is still in the history, but the model no longer finds and uses it reliably among everything else, so it fetches the file again, which adds even more tokens.
+
+### How Do You Fix The Ignored Rules And Re-Reads?
+
+**Enforce critical rules in code.** A rule like "never edit files in `/config`" should not depend on the model remembering it. The edit tool itself rejects any path under `/config` and returns a tool result with `is_error: true`. The rule then holds however long the context gets.
+
+**Keep the context lean even when it fits:**
+
+- **Read less.** Give the agent search tools and line-range reads, so it pulls in the relevant parts of the repository instead of whole files.
+- **Compact old file contents** once they have been used, keeping a short note of what was learned from each file.
+- **Keep a running record of progress.** A short list of files read, findings, and remaining steps lets the model check its notes instead of re-reading files, and doubles as the saved state that lets a crashed task resume.
+
+### Model Answer
+
+"Both problems come from the history growing on a large repository. The crash is the input exceeding the context window. Every file read adds a large tool result, and once the prompt is too long, the API returns a 400 'prompt is too long' error, so retrying the same request cannot help. I would count tokens before each call, trim tool results to the parts the agent needs, compact old history before the limit, and save task state outside the context so a failure can resume instead of losing everything.
+
+The ignored rules and re-reads are context rot. Long before the limit, accuracy drops as the prompt fills with file contents, so a one-line rule and earlier reads are used less reliably. I would keep the context lean even when it fits. But for a rule like 'never edit `/config`', I would not depend on the model remembering it. The edit tool would refuse those paths in code."
+
+### Likely Follow-Ups
+
+- **"Why not just use a model with a bigger context window?"** A bigger window delays the crash but does not remove it, since the history keeps growing. It also does nothing for context rot: a prompt that fits comfortably can still produce worse results when it is full of text the model does not need. And every extra token is paid for on every call.
+- **"Why not move the rule somewhere more prominent, like the end of the prompt?"** Placement can help, and some studies found models use information near the start or end of a long input more reliably than the middle. But it only improves the odds. A rule that protects files has to be enforced by the tool.
+- **"What do you lose when you compact the history?"** Whatever is removed is gone for later calls. A summary can drop a detail the task needed later, so compaction keeps what the remaining work depends on, and the saved task state acts as a backstop.
