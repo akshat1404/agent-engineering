@@ -277,3 +277,71 @@ The ignored rules and re-reads are context rot. Long before the limit, accuracy 
 - **"Why not just use a model with a bigger context window?"** A bigger window delays the crash but does not remove it, since the history keeps growing. It also does nothing for context rot: a prompt that fits comfortably can still produce worse results when it is full of text the model does not need. And every extra token is paid for on every call.
 - **"Why not move the rule somewhere more prominent, like the end of the prompt?"** Placement can help, and some studies found models use information near the start or end of a long input more reliably than the middle. But it only improves the odds. A rule that protects files has to be enforced by the tool.
 - **"What do you lose when you compact the history?"** Whatever is removed is gone for later calls. A summary can drop a detail the task needed later, so compaction keeps what the remaining work depends on, and the saved task state acts as a backstop.
+
+---
+
+## Question 5: Why Did The Agent Loop, And Why Did It Crash?
+
+> Your customer-support agent has a `search_orders` tool. Two incidents came in this week. In the first, one user's simple question led to 40 model calls in a row. The agent kept calling `search_orders` with the same arguments, the request took four minutes, and it cost more than the rest of that day's traffic combined. In the second, the application crashed with a JSON parse error while reading the arguments of a `search_orders` call, on a request where the developer had set `max_tokens` to 300. What went wrong in each case, and how would you make the agent loop robust against both?
+
+### What Is This Testing?
+
+Whether the candidate understands that the application, not the model, owns the agent loop: when it stops, what each tool result tells the model, and when a response is safe to act on. Covered in 1.3 Tokens and 1.7 Tool Calling.
+
+### Why Did The Agent Loop?
+
+The agent loop runs until the model gives a final answer: call the model, run any tool it asks for, add the call and the result to the history, and call again. Nothing in the loop stops it unless the application adds a stop.
+
+The usual cause of a repeated identical call is a tool result the model cannot act on. If `search_orders` returns an empty list `[]`, or a bare `Error`, the model cannot tell "this customer has no orders" apart from "the search failed", so trying the same call again looks like a reasonable next step. Every repeat is a full model call that resends the whole history, which is why 40 calls took minutes and cost more than a day of normal traffic.
+
+### How Do You Stop The Loop?
+
+- **Return tool results the model can act on.** Instead of `[]`, return "No orders found for elon@example.com in the last 14 days. Ask the user for an order number instead." Instead of a bare error, say what failed and whether retrying can help.
+- **Detect repeated identical calls.** When the model calls the same tool with the same arguments it already used in this turn, the application does not run the tool again. It returns a tool result with `is_error: true` saying the call was already made and what it returned.
+- **Cap each turn.** A turn is one user message plus every model call it takes to answer it. The application sets a maximum number of model calls, and optionally tokens or cost, per turn. When the cap is hit, the turn ends with a clear message to the user instead of continuing to spend.
+
+### Why Did The Application Crash?
+
+`max_tokens` is the maximum length of the model's reply, set by the developer. The logs for the crashed request show that the model spent most of the 300-token budget on a long text preamble, started the `search_orders` call, and was cut off partway through the arguments. The application had collected the streamed argument fragments and tried to parse them:
+
+```
+stop_reason: "max_tokens"
+tool_use arguments received: {"customer_email": "elon@exam
+```
+
+The model did not fail, and the API did not return an error. The request was valid, and the API reported exactly what happened through the stop reason, the field that says why the model stopped writing. **The bug was in the application, which parsed the tool arguments without checking the stop reason first.** Only the stop reason `tool_use` means the model finished writing the tool call and its arguments are complete.
+
+### How Do You Handle A Cut-Off Reply?
+
+The application checks the stop reason before acting on any tool call:
+
+```ts
+// agent/handleResponse.ts
+import Anthropic from "@anthropic-ai/sdk";
+export function nextStep(message: Anthropic.Message) {
+  if (message.stop_reason === "tool_use") {
+    return { kind: "run_tools" }; // arguments are complete: parse and validate them against the schema
+  }
+  if (message.stop_reason === "max_tokens" || message.stop_reason === "model_context_window_exceeded") {
+    return { kind: "retry_with_more_room" }; // the reply is incomplete: never act on it
+  }
+  return { kind: "final_answer" };
+}
+```
+
+- **Retry the whole call, not the missing half.** Asking the model to continue a cut-off tool call and joining the two outputs can produce arguments that parse but hold wrong values.
+- **Give the retry more room.** 300 tokens was too small for a preamble plus a tool call, so a retry with the same limit is likely to be cut off in the same place. The retry uses a higher `max_tokens`.
+- **Validate before running.** Even complete arguments are checked against the tool's input schema before the tool runs.
+- **Fail clearly if retries do not help.** The turn ends with a message the user understands, such as "Something went wrong looking up your order. Please try again.", instead of an unhandled crash.
+
+### Model Answer
+
+"The first incident is a loop with no stop. Most likely `search_orders` returned something the model could not act on, such as an empty list or a bare error, so the model kept retrying the same call, and nothing in the application stopped it. I would make tool results explain themselves, detect repeated identical calls and return an error instead of rerunning them, and cap model calls and spend per user message, ending with a clear message when the cap is hit.
+
+The second is a cut-off tool call. The 300-token `max_tokens` limit ran out partway through the arguments, the stop reason was `max_tokens`, and the code parsed the arguments without checking it. I would check the stop reason before reading any tool call, parse and validate arguments only on `tool_use`, retry the whole call with a higher limit on `max_tokens`, and if it still fails, show the user a clear error instead of crashing."
+
+### Likely Follow-Ups
+
+- **"Why not just catch the JSON parse error?"** Catching it prevents the crash but hides the cause. Worse, a cut-off can happen at a point where the partial arguments still parse, for example a list of order IDs cut after a complete item, and the tool would run with the wrong input. The stop reason is the reliable signal, not whether parsing succeeds.
+- **"Why not set `max_tokens` very high everywhere?"** A higher limit makes cut-offs rarer, but long replies cost more and take longer, and a cap still has to exist. The stop reason check is needed whatever the limit is.
+- **"What should the cap be?"** Base it on measured turns. Log the number of calls per turn in production, look at what normal tasks need, and set the cap comfortably above that, so it only stops runaway turns.
