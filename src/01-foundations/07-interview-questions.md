@@ -342,3 +342,15 @@ The second is a cut-off tool call. The 300-token `max_tokens` limit ran out part
 - **"Why not just catch the JSON parse error?"** Catching it prevents the crash but hides the cause. Worse, a cut-off can happen at a point where the partial arguments still parse, for example a list of order IDs cut after a complete item, and the tool would run with the wrong input. The stop reason is the reliable signal, not whether parsing succeeds.
 - **"Why not set `max_tokens` very high everywhere?"** A higher limit makes cut-offs rarer, but long replies cost more and take longer, and a cap still has to exist. The stop reason check is needed whatever the limit is.
 - **"What should the cap be?"** Base it on measured turns. Log the number of calls per turn in production, look at what normal tasks need, and set the cap comfortably above that, so it only stops runaway turns.
+
+Sources:
+
+What applied-AI engineer interviews test in 2026, techinterview.org
+AI Agent Infrastructure Interviews 2026, techinterview.org
+Context windows, Claude Docs
+Token counting, Claude Docs
+API errors, Claude Docs
+Handling stop reasons, Claude Docs
+Parallel tool use, Claude Docs
+Lost in the Middle, arXiv
+Anthropic API Version 2026-10-21 migration guide, codersera.com
