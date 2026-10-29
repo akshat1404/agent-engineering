@@ -1,8 +1,5 @@
-# Interview Questions: Foundations
+# Practice Questions: Foundations
 
-These questions cover Part 1. Each one is phrased the way an interviewer might ask it, usually as a scenario that does not name the topic, because recognizing which concept applies is part of the answer. Each question is followed by what it tests, a model answer, and the follow-ups an interviewer is likely to ask next.
-
----
 
 ## Question 1: Why Did The Bill More Than Double?
 
