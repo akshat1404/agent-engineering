@@ -1,5 +1,8 @@
-# Practice Questions: Foundations
+# Interview Questions: Foundations
 
+These questions cover Part 1. Each one is phrased the way an interviewer might ask it, usually as a scenario that does not name the topic, because recognizing which concept applies is part of the answer. Each question is followed by what it tests, a model answer, and the follow-ups an interviewer is likely to ask next.
+
+---
 
 ## Question 1: Why Did The Bill More Than Double?
 
@@ -343,14 +346,24 @@ The second is a cut-off tool call. The 300-token `max_tokens` limit ran out part
 - **"Why not set `max_tokens` very high everywhere?"** A higher limit makes cut-offs rarer, but long replies cost more and take longer, and a cap still has to exist. The stop reason check is needed whatever the limit is.
 - **"What should the cap be?"** Base it on measured turns. Log the number of calls per turn in production, look at what normal tasks need, and set the cap comfortably above that, so it only stops runaway turns.
 
-Sources:
+---
 
-What applied-AI engineer interviews test in 2026, techinterview.org
-AI Agent Infrastructure Interviews 2026, techinterview.org
-Context windows, Claude Docs
-Token counting, Claude Docs
-API errors, Claude Docs
-Handling stop reasons, Claude Docs
-Parallel tool use, Claude Docs
-Lost in the Middle, arXiv
-Anthropic API Version 2026-10-21 migration guide, codersera.com
+## Sources
+
+The scenarios in this chapter are original, written to test the concepts from Part 1. The choice of topics follows what applied AI engineer interviews are reported to focus on, and the technical facts in the answers come from Anthropic's documentation.
+
+**What interviews test:**
+
+- [What applied-AI engineer interviews test in 2026, techinterview.org](https://www.techinterview.org/post/3233476824/ai-engineer-interview-rag-agents-evals/)
+- [AI Agent Infrastructure Interviews 2026, techinterview.org](https://www.techinterview.org/post/3233474928/ai-agent-infrastructure-interview/)
+
+**Technical facts, by question:**
+
+- [Context windows, Claude Docs](https://platform.claude.com/docs/en/build-with-claude/context-windows): resending history, context rot, and what happens when a call does not fit (Questions 1 and 4).
+- [Token counting, Claude Docs](https://platform.claude.com/docs/en/build-with-claude/token-counting): measuring a request before sending it (Questions 1 and 4).
+- [API errors, Claude Docs](https://platform.claude.com/docs/en/api/errors): the 400 `invalid_request_error` for a prompt that is too long (Question 4).
+- [Handling stop reasons, Claude Docs](https://docs.claude.com/en/api/handling-stop-reasons): `tool_use`, `max_tokens`, and `model_context_window_exceeded` (Questions 4 and 5).
+- [Parallel tool use, Claude Docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/parallel-tool-use): tool result rules and `is_error` (Questions 1, 2, 3, and 5).
+- [Lost in the Middle: How Language Models Use Long Contexts, Liu et al., 2023](https://arxiv.org/abs/2307.03172): position effects in long inputs (Question 4).
+
+The deprecation of `temperature` on Anthropic's newest models (Question 2) comes from Anthropic's Messages API reference, as covered in 1.4 Temperature and Sampling.
