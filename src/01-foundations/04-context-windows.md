@@ -130,7 +130,7 @@ No. Staying under the limit does not mean the model uses everything in the windo
 
 The laptop agent shows what context rot looks like. By call 4, the prompt holds three full product pages, and the model needs three numbers from all of that text, one price per laptop. Everything else is text the model reads and has to look past, and every extra page adds more. With ten pages, the failures are not errors. They are quieter: two prices mixed up, one laptop missing from the comparison, or an instruction from the system prompt followed less closely because the prompt is now mostly web page text.
 
-Position can matter too. As far as I know, a widely cited 2023 study, "Lost in the Middle," found that models used information near the start or the end of a long input more reliably than information in the middle. Newer models may handle long inputs better, so the finding is a known pattern to watch for, not a fixed rule.
+Position can matter too. A widely cited 2023 study, "Lost in the Middle," found that models used information near the start or the end of a long input more reliably than information in the middle. Newer models may handle long inputs better, so the finding is a known pattern to watch for, not a fixed rule.
 
 Context rot changes why trimming matters. Shrinking the history is not only about fitting under the limit. A prompt can fit comfortably and still produce worse answers because the prompt is full of text the model does not need. So production agents keep the input lean even when there is room, for example by passing the price instead of the whole page, or by summarizing old tool results.
 

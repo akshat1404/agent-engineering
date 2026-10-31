@@ -100,7 +100,7 @@ Variation between runs has two sources, and only the first one is under the deve
 
 The first source is deliberate randomness. At any temperature above 0, the sampler picks at random by design, and the developer reduces that randomness by lowering the temperature.
 
-The second source is incidental variation that remains even at temperature 0. In theory, greedy decoding repeats exactly. In practice, hosted models can still return different outputs for the same request, and Anthropic's API documentation states that results at a temperature of 0.0 are not fully deterministic. As far as I know, the main cause is hardware arithmetic. Servers compute the model's scores in parallel and batch many users' requests together, and the order in which numbers get added can vary between runs. The scores change by tiny amounts, far below anything that matters most of the time.
+The second source is incidental variation that remains even at temperature 0. In theory, greedy decoding repeats exactly. In practice, hosted models can still return different outputs for the same request, and Anthropic's API documentation states that results at a temperature of 0.0 are not fully deterministic. The main cause is hardware arithmetic. Servers compute the model's scores in parallel and batch many users' requests together, and the order in which numbers get added can vary between runs. The scores change by tiny amounts, far below anything that matters most of the time.
 
 The tiny changes matter when two tokens are nearly tied:
 
