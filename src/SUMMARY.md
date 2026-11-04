@@ -16,10 +16,10 @@
 # Part 2: Context Engineering
 
 - [Overview](02-context-engineering/00-intro.md)
-- [Memory Types](02-context-engineering/01-memory-types.md)
+- [Memory Types](02-context-engineering/01-context-window-management.md)
 - [RAG and Retrieval](02-context-engineering/02-rag-retrieval.md)
-- [Caching](02-context-engineering/03-caching.md)
-- [Context Window Management](02-context-engineering/04-context-window-management.md)
+- [Caching](02-context-engineering/03-memory-types.md)
+- [Context Window Management](02-context-engineering/04-caching.md)
 
 # Part 3: Tool Use
 
