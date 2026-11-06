@@ -186,4 +186,52 @@ The string `HR-POL-114` carries almost no meaning to an embedding model, so the 
 
 **Exact identifiers favor keyword search, and paraphrased meaning favors semantic search.** Each method is strong where the other is weak, and real questions often contain both, such as "What does HR-POL-114 say about working from home?", which is why production systems often combine the two.
 
-<!-- Sections still to come: chunking, the indexing and query pipeline, hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
+## Why Are Documents Split Into Chunks?
+
+A text embedding has a fixed length, however long the text is. A 40-page Leave Policy embedded as one vector becomes a mix of every topic in it, such as parental leave, sick leave, holidays, and approval rules, so it matches no single question strongly. And if it did match, all 40 pages would go into the context, which is the whole-catalog problem from the overview again.
+
+So before embedding, documents are split into chunks, smaller pieces of text that are each embedded and stored separately. **Search returns chunks, not whole documents.** Both sides of the search are embedded, at different times:
+
+```
+Ahead of time:   Leave Policy → chunks → embed each chunk → store the vectors
+At query time:   "How many days of paternity leave?" → embed → compare with stored vectors → top chunks
+```
+
+Chunking applies only to the documents. A question is short, so it becomes a single vector. Both sides must be embedded by the same embedding model, because vectors from two different models describe positions in different spaces and cannot be compared. **Switching to a new embedding model means embedding every stored chunk again.** Some embedding models also expect a marker saying whether the input is a question or a document, because a short question and the long passage that answers it are written differently even though they should match.
+
+### How Big Should A Chunk Be?
+
+Chunk size is a trade-off between two failures:
+
+- **Chunks that are too large** blur several topics into one vector, so matches get weaker, and each retrieved chunk brings irrelevant text into the context.
+- **Chunks that are too small** match precisely but lose their surroundings. A chunk that says "This applies to employees with more than one year of service" is useless if it does not say what "this" is.
+
+A common starting point is a few hundred tokens per chunk, adjusted by testing on real questions. Three practices make chunks work better:
+
+1. **Split along the document's structure.** Break at headings, sections, and paragraphs instead of at a fixed number of characters, so a chunk does not end mid-sentence or mix two sections.
+2. **Overlap neighboring chunks slightly.** Each chunk repeats a sentence or two from the one before it, so an idea that crosses a boundary appears whole in at least one chunk.
+3. **Attach context to every chunk.** Store the document title and section path with each chunk, such as `Leave Policy > Parental Leave > Eligibility`, so a chunk can be understood on its own and the search has more to match.
+
+### What Happens When A Chunk Depends On Another Section?
+
+Here is a chunk retrieved for the paternity question:
+
+```
+"Employees are entitled to 15 working days, subject to the conditions in section 4.2."
+```
+
+Section 4.2 is a separate chunk that was not retrieved, because it mentions neither paternity nor days. It says:
+
+```
+"Employees with less than one year of service are entitled to 5 working days."
+```
+
+The employee asking has worked at the company for four months, and the model answers "15 working days". **The chunk depended on context it did not contain.** Making every chunk large enough to include what it refers to is not workable, because section 4.2 can be pages away and larger chunks blur the vectors again. Applications handle it in three ways:
+
+1. **Search with small chunks, and read with larger ones.** Small chunks are matched against the question, because their vectors are precise. When one matches, the application puts its larger parent, such as the whole section or the chunks around it, into the context. This is often called parent-document or small-to-big retrieval, and it fixes context that sits nearby.
+2. **Follow references.** When a retrieved chunk says "see section 4.2", the application, or the model through a tool such as `get_section("4.2")`, fetches that section as well. This fixes context that is far away but explicitly pointed to, and with a tool, the agent decides when a reference matters.
+3. **Let the model ask.** Even with section 4.2 retrieved, the answer depends on something the documents cannot know, the employee's length of service. The model either looks it up with a tool or asks the employee. A condition that the documents cannot resolve is a reason to check, not to guess.
+
+Without any of these, the model answers "15 working days" with confidence, which is the missing-context failure from the overview: no error, and an answer that looks correct.
+
+<!-- Sections still to come: the indexing and query pipeline, hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
