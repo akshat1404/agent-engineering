@@ -84,22 +84,83 @@ Both limits come from the same source. The underlying problem is that **the same
 
 ## How Does Search By Meaning Work?
 
-Searching by meaning starts with an embedding. An embedding model is a separate model from the chat model, and it does one job: it turns a piece of text into a fixed-length list of numbers, called a vector. Real embeddings have hundreds to a few thousand numbers each. **The embedding model is trained so that texts with similar meanings get similar vectors, even when they share no words.**
+Searching by meaning starts with an embedding. An embedding model is a separate model from the chat model, and it does one job: it turns a piece of text into a fixed-length list of numbers. **The embedding model is trained so that texts with similar meanings get similar lists of numbers, even when they share no words.**
 
-Here is a toy version with two numbers per text. The numbers are invented to show the idea:
+### Why Is It Called A Vector?
+
+In mathematics, a vector is an ordered list of numbers, and a list of numbers can be read as a position in space. A list of two numbers is a point on a flat plane, with the first number as the horizontal position and the second as the vertical one. A list of three numbers is a point in three-dimensional space. A real embedding with 1,024 numbers is a point in a 1,024-dimensional space, which nobody can picture, but the arithmetic works the same way. So an embedding is a vector, and **texts with similar meanings end up at nearby positions.**
+
+A single number would not be enough, because one number places texts along a single line, so it can express only one property. Suppose every text got one number for "how much is this about time off":
 
 ```
-"paternity leave days"                             → [0.81, 0.62]
-"15 working days of leave after a child's birth"   → [0.78, 0.66]   close: similar meaning
-"submit leave requests through the HR portal"      → [0.35, 0.90]
-"office closed for year-end shutdown"              → [0.10, 0.20]   far: different meaning
+"15 days of leave after a child's birth"   → 0.9
+"office closed for year-end shutdown"      → 0.9
 ```
 
-"Paternity" and "birth of a child" share no words, but their vectors land close together, because the embedding model learned from large amounts of text that the two are used in similar contexts.
+Both are about time off, so both get 0.9, and the search would treat them as the same, even though one is about having a child and the other is about the office calendar. A second number, for "how much is this about family", separates them:
 
-Closeness is usually measured with cosine similarity, a score that compares the direction of two vectors. Values near 1 mean the texts are very similar, and lower values mean they are less similar. Searching by this kind of similarity is called semantic search, meaning search by meaning.
+```
+                                            time off   family
+"15 days of leave after a child's birth"    [0.9,      0.8]
+"office closed for year-end shutdown"       [0.9,      0.1]
+"maternity health insurance coverage"       [0.2,      0.9]
+```
 
-Semantic search answers the paternity question in three steps:
+**Every extra number adds another direction in which two texts can differ.** Language has a very large number of independent ways for two texts to differ, which is why real embeddings use hundreds to a few thousand numbers.
+
+The labels "time off" and "family" are invented for illustration. In a real embedding model, nobody designs what each dimension means. The numbers are learned during training, adjusted until texts with similar meanings sit close together, and a concept such as "family" is not stored in one dimension. It is a direction that involves many dimensions at once, and each dimension contributes a little to many concepts. Individual dimensions rarely line up with anything a person could name, and applications never read them. The only thing an application does with embeddings is compare them.
+
+### Is A Vector Made For A Word Or For A Whole Text?
+
+Both exist, for different purposes. Inside a language model, every token is first turned into a vector of its own, and older systems built one vector per word. Those vectors are used inside models, not for search. Retrieval uses text embeddings: an embedding model reads a whole piece of text, such as a sentence, a paragraph, or a page, and produces one vector for the entire text.
+
+**A text embedding has a fixed length, however long the text is.**
+
+```
+"paternity leave days"                       → 1,024 numbers
+a 500-word section of the Leave Policy       → 1,024 numbers
+```
+
+A short passage about one topic gets a vector that represents that topic clearly. A long passage that covers five topics is compressed into the same 1,024 numbers, so its vector mixes all five and matches no single question strongly. This is why documents are split into smaller pieces before they are embedded, covered in the section on chunking.
+
+### How Is Closeness Measured?
+
+Closeness is calculated with a formula, and three are common:
+
+1. **Euclidean distance** is the straight-line distance between two points. A smaller distance means more similar.
+2. **Cosine similarity** is the cosine of the angle between two vectors, with each vector drawn as an arrow from the origin. It depends only on the direction each arrow points, not on its length. A value of 1 means the same direction, 0 means unrelated, and -1 means opposite. This is the most common choice for text.
+3. **Dot product** multiplies matching numbers and adds the results. It is the core of cosine similarity without the adjustment for length.
+
+Cosine similarity is calculated like this:
+
+```
+cosine(a, b) = (a · b) / (|a| × |b|)
+a · b = a1×b1 + a2×b2 + ...          the dot product
+|a|   = √(a1² + a2² + ...)           the length of vector a
+```
+
+Dividing by the two lengths removes length from the result, so only direction is left. Here it is with the two-number vectors from above, where the question "paternity leave days" is `[0.9, 0.85]`, high on both time off and family:
+
+```
+Passage "15 days after a child's birth"  [0.9, 0.8]
+  dot product = 0.9×0.9 + 0.85×0.8 = 1.49
+  lengths     = 1.238 and 1.204
+  cosine      = 1.49 / (1.238 × 1.204) = 0.999
+Passage "year-end shutdown"              [0.9, 0.1]
+  dot product = 0.9×0.9 + 0.85×0.1 = 0.895
+  lengths     = 1.238 and 0.906
+  cosine      = 0.895 / (1.238 × 0.906) = 0.798
+Passage "maternity health coverage"      [0.2, 0.9]
+  cosine      = 0.828
+```
+
+The passage about leave after a birth ranks first, and the year-end shutdown ranks last, even though it shares "time off" with the question.
+
+Direction is used instead of distance because the length of a vector tends to reflect things such as how long or wordy a text is, while its direction reflects what the text is about. A short passage and a long passage on the same topic can sit at different distances from the origin and still point the same way. Many embedding models also output vectors scaled to a length of 1, and for those, cosine similarity equals the dot product and ranking by distance gives the same order, so in practice the three measures often agree.
+
+### How Does Semantic Search Answer The Question?
+
+Searching by this kind of similarity is called semantic search, meaning search by meaning. It answers the paternity question in three steps:
 
 1. **Ahead of time,** every passage in the HR documents is turned into an embedding and stored. This happens once per passage, not once per question.
 2. **At question time,** the employee's question is turned into an embedding.
@@ -113,11 +174,16 @@ Passage C (year-end shutdown)          → 0.42
 
 The scores are illustrative. Passage A ranks first without containing the word "paternity", because its meaning is closest to the question.
 
-Semantic search has its own weakness. Embeddings capture general meaning, which makes them imprecise about exact terms:
+### Where Is Semantic Search Weak?
 
-- **Codes and IDs.** `ERR-4012` and `ERR-4021` look nearly identical to an embedding model, but they name different errors.
-- **Names, product codes, and policy numbers.** A policy number such as `HR-POL-114` has no meaning to match. The exact characters are the point.
+Embeddings capture general meaning, which makes them imprecise about exact terms. Suppose the HR documents hold several policies about remote work, and an employee asks:
 
-**Keyword search is strong exactly where semantic search is weak, and the reverse is also true,** which is why production systems often combine the two.
+```
+What does policy HR-POL-114 say about remote work?
+```
+
+The string `HR-POL-114` carries almost no meaning to an embedding model, so the question's embedding mostly represents "a policy about remote work". HR-POL-109, on equipment for home offices, and HR-POL-121, on remote allowances, look just as close, and the right policy can come back third or not at all. Keyword search handles the same question easily. `HR-POL-114` is a rare string that appears in very few passages, so BM25 gives it heavy weight, and the passages of HR-POL-114 rank first. The same weakness applies to error codes, where `ERR-4012` and `ERR-4021` look nearly identical to an embedding model but name different errors, and to names and product codes.
+
+**Exact identifiers favor keyword search, and paraphrased meaning favors semantic search.** Each method is strong where the other is weak, and real questions often contain both, such as "What does HR-POL-114 say about working from home?", which is why production systems often combine the two.
 
 <!-- Sections still to come: chunking, the indexing and query pipeline, hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
