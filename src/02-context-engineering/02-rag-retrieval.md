@@ -376,4 +376,44 @@ Stage 2: reranker       → those 50 scored again, top 5 kept           (slow, a
 
 **The first stage makes the problem small enough for the second stage to be affordable.** The reranker can only reorder the chunks it is given, so the first stage has one job: get the right chunk somewhere into its 50. The second stage then makes sure that chunk ends up in the 5 that reach the model.
 
-<!-- Sections still to come: retrieval as a tool, evaluating retrieval, failure modes. -->
+## Who Decides When To Search?
+
+So far, retrieval has been a fixed pipeline: for every message, the application searches with the user's exact words, puts the results into the context, and then calls the model. The pipeline is simple and predictable, and it breaks in four common situations:
+
+1. **Follow-up questions.** After the paternity answer, the employee asks "And what about adoption?" The pipeline searches for exactly those words, which mention neither leave nor days, so the results are poor.
+2. **Messages that need no search.** "Thanks!" or "Can you make that shorter?" still trigger a search and fill the context with irrelevant chunks.
+3. **One attempt only.** If the first search misses, nothing tries again, and the model answers from whatever came back.
+4. **Questions with several parts.** "Compare our leave policy with our remote work policy" needs two searches, and a single query that mixes both topics matches neither well.
+
+The alternative is to make retrieval a tool, like any tool from 1.7, and let the model call it:
+
+```json
+{
+  "name": "search_documents",
+  "description": "Search the company's HR documents. Returns the most relevant passages with their source.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": { "type": "string", "description": "What to search for, written as a full standalone question or phrase" },
+      "source": { "type": "string", "description": "Optional: limit to one document, e.g. Leave Policy" }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+**With a search tool, the model decides whether to search, what to search for, and how many times.** It skips the search for "Thanks!". It writes its own query from the conversation, so "And what about adoption?" becomes `search_documents("adoption leave days entitlement")`. It searches once per topic for a comparison, searches again when the first results miss, and follows references such as "see section 4.2". This approach is often called agentic RAG, and it has three costs:
+
+- **More calls.** Every search is a tool round, which adds latency and tokens, the same growth covered in 1.5.
+- **Less predictability.** The model might search three times or not at all.
+- **Skipped searches.** The model can answer from its training data instead of searching, which for a company's policies produces a confident guess. A system prompt rule such as "answer policy questions only from search results, and say so when nothing relevant is found", backed by tests that check the agent actually searches, guards against this.
+
+A middle ground combines the two: the application always runs one search on the first message, so every answer starts from some retrieved material, and the model also has the search tool for follow-ups and further searches.
+
+The right choice depends on the questions. **A public help bot for an airline**, answering thousands of short questions an hour such as "What's the baggage allowance?", fits a fixed pipeline. Each question is single-topic, one search usually finds the answer, an extra tool round on every question adds cost and waiting time at high volume, and a single fixed path is easier to test and monitor. Follow-ups such as "And for international flights?" are handled by adding one step before the search, a quick model call that rewrites the follow-up into a standalone query such as "baggage allowance international flights".
+
+**An internal research assistant for lawyers**, answering "Which of our contracts with suppliers in Germany allow termination without notice, and how do their notice periods compare?", needs the search tool. The question takes several searches, each depending on the last: find the supplier contracts in Germany, find each contract's termination clause, check which allow termination without notice, and compare their notice periods. Only a model that can search repeatedly and write its own queries can do that, so agentic RAG or the middle ground fits, and the slower answer is acceptable when correctness and citations matter more than speed.
+
+**A fixed pipeline suits simple questions at high volume, and a search tool suits questions that need several searches or follow-ups.**
+
+<!-- Sections still to come: evaluating retrieval, failure modes. -->
