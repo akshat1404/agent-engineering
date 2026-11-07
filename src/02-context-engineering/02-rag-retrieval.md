@@ -290,4 +290,90 @@ An intern, who is not on the HR team, asks "What's the salary range for a senior
 
 The index is a copy of the documents, so it goes stale when a document changes and is not indexed again. When a document is updated, the pipeline deletes its old chunks and chunks, embeds, and stores the new version. Without the deletion, both versions stay in the store, and search can return either one.
 
-<!-- Sections still to come: hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
+## How Do Keyword And Semantic Search Work Together?
+
+Keyword search is strong on exact terms such as `HR-POL-114`, and semantic search is strong on paraphrased meaning such as "paternity" and "birth of a child". Many real questions need both:
+
+```
+What does HR-POL-114 say about working from home?
+```
+
+Hybrid search runs both searches on the same question and merges their results into one list.
+
+### What Is BM25?
+
+The keyword half of hybrid search is usually scored with BM25, short for "Best Matching 25", a formula that has been the standard for keyword ranking for decades and is the default in widely used search engines such as Elasticsearch and OpenSearch. Plain keyword search counts matching words, and BM25 adds three adjustments:
+
+1. **Rare words count more.** A word that appears in almost every passage, such as "leave" in HR documents, says little about relevance, while a rare word such as "paternity" or `HR-POL-114` is strong evidence. This weighting is called inverse document frequency.
+2. **Repeating a word helps, with diminishing returns.** A passage that mentions "paternity" twice is probably more about paternity than one that mentions it once, but the tenth mention adds almost nothing over the ninth, so a passage cannot win by repetition alone.
+3. **Long passages do not win by being long.** A 2,000-word passage contains more of every word than a 100-word one, so scores are adjusted for passage length, and a short, focused passage can beat a long one that mentions the word in passing.
+
+### How Are Two Ranked Lists Merged?
+
+Each search scores every chunk and sorts its results by its own score, so the question produces two ranked lists that disagree:
+
+```
+Keyword search ranking:            Semantic search ranking:
+1. HR-POL-114 (remote work)        1. Working From Home FAQ
+2. HR-POL-121 (allowances)         2. HR-POL-114 (remote work)
+3. Working From Home FAQ           3. HR-POL-109 (equipment)
+4. HR-POL-109 (equipment)          4. HR-POL-121 (allowances)
+```
+
+The scores cannot simply be added, because the two searches score on different scales. BM25 scores have no upper limit, such as 14.2 or 9.8, while cosine similarities sit near 0.89 or 0.71, so a sum would let the keyword search decide almost every time. **Hybrid search therefore uses each search's scores only to sort its own list, then throws the scores away and combines positions.**
+
+The simplest version gives points by position, 4 for first, 3 for second, 2 for third, and 1 for fourth, and adds each chunk's points from both lists:
+
+```
+                           keyword    semantic   total
+HR-POL-114 (remote work)   4 (1st)    3 (2nd)      7   first
+Working From Home FAQ      2 (3rd)    4 (1st)      6
+HR-POL-121 (allowances)    3 (2nd)    1 (4th)      4
+HR-POL-109 (equipment)     1 (4th)    2 (3rd)      3
+```
+
+HR-POL-114 is not first in the semantic list, but it does well in both lists, so it comes out on top, while HR-POL-121, which only the keyword search liked, drops down. **Hybrid search rewards chunks that both methods agree on.** The combined list is sorted by total, and the top few chunks are passed on, because an answer can need several chunks and the top one can still be wrong.
+
+In practice, the points come from reciprocal rank fusion, or RRF:
+
+```
+RRF score = 1 / (k + position in keyword list) + 1 / (k + position in semantic list)
+k is a constant, commonly 60
+```
+
+RRF follows the same logic as the points above, with two practical improvements. Each search returns only its top results, so a chunk can be missing from one list, and RRF gives it zero points from that list instead of requiring an invented position. And the formula makes top positions count more, so moving from first to second costs more than moving from fortieth to forty-first.
+
+## Why Is A Second Ranking Step Needed?
+
+Semantic search finds chunks about the same topic as the question, which is not always the same as chunks that answer it. For the paternity question, the top results can look like this:
+
+```
+Question: "How many days of paternity leave do I get?"
+1. "Paternity leave requests must be submitted through the HR portal."                    0.88
+2. "Many new fathers take two weeks off, according to an industry survey."                0.86
+3. "Employees are entitled to 15 working days of leave following the birth of a child."   0.84
+```
+
+All three are about paternity leave, and only the third answers how many days this employee gets. The cause is how semantic search works. **The question and each chunk are turned into vectors separately, so the question and the chunk are never read side by side.** The comparison asks whether two texts are about the same thing, not whether one answers the other. Computing chunk vectors once, ahead of time, is what makes semantic search fast, and it is also what makes it approximate.
+
+A reranker is a separate model that takes the question and one chunk together, as a pair, and outputs a score for how well that chunk answers that question. Reading both at once, it can notice that the question asks for a number of days and only one chunk contains one, and that "do I get" refers to this company's policy, which an industry survey is not:
+
+```
+Reranker scores:
+"...entitled to 15 working days of leave following the birth..."   0.94   now first
+"Paternity leave requests must be submitted..."                       0.31
+"Many new fathers take two weeks off, survey..."                      0.12
+```
+
+A reranker cannot compute anything ahead of time, because its score depends on the specific question, so **it runs the model once for every chunk it scores, every time a question arrives.** If one reranker run took 10 milliseconds, an illustrative figure, scoring 50 chunks would take half a second, and scoring 1,000,000 chunks would take nearly three hours per question.
+
+So production retrieval runs in two stages:
+
+```
+Stage 1: hybrid search  → millions of chunks narrowed to the top 50   (fast, approximate)
+Stage 2: reranker       → those 50 scored again, top 5 kept           (slow, accurate)
+```
+
+**The first stage makes the problem small enough for the second stage to be affordable.** The reranker can only reorder the chunks it is given, so the first stage has one job: get the right chunk somewhere into its 50. The second stage then makes sure that chunk ends up in the 5 that reach the model.
+
+<!-- Sections still to come: retrieval as a tool, evaluating retrieval, failure modes. -->
