@@ -234,4 +234,60 @@ The employee asking has worked at the company for four months, and the model ans
 
 Without any of these, the model answers "15 working days" with confidence, which is the missing-context failure from the overview: no error, and an answer that looks correct.
 
-<!-- Sections still to come: the indexing and query pipeline, hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
+## How Does The Whole Pipeline Fit Together?
+
+RAG runs as two separate flows at different times. **Indexing runs ahead of time, whenever documents are added or changed. Querying runs for every question.**
+
+```
+Indexing (ahead of time):  documents → parse → chunk → embed → store (vector + text + metadata)
+Querying (per question):   question → embed → search the store → top chunks → context → answer
+```
+
+### How Is Indexing Automated?
+
+Nobody chunks a million passages by hand. Indexing is a pipeline of code with four steps:
+
+1. **Parse.** A parser converts each file, such as a PDF, a Word document, or a wiki page, into plain text while keeping its structure: headings, paragraphs, lists, and tables. A badly parsed PDF with two columns or a table produces scrambled text, and every later step inherits it.
+2. **Split.** A splitter cuts the text by rules. A common approach is recursive splitting: try to split at section headings, and if a section is still too long, split at paragraphs, then at sentences, until every chunk is under the size limit. The splitter adds the overlap between neighboring chunks as well. Libraries such as LangChain and LlamaIndex provide ready-made parsers and splitters, so teams mostly configure them.
+3. **Attach metadata.** Metadata is extra information stored with each chunk. The pipeline fills it from what it already knows: the document title, the section path taken from the headings, the last-modified date, and the permissions copied from the system the document came from.
+4. **Embed and store.** Each chunk is embedded, and its vector, text, and metadata are stored together.
+
+A more recent refinement uses a model during indexing. For each chunk, a model writes a sentence of context, such as "This chunk is from the Leave Policy, section 4, about leave after the birth of a child", which is added to the chunk before it is embedded. Anthropic has described this approach as contextual retrieval. It costs one model call per chunk and makes chunks easier to find and to understand on their own.
+
+### Where Do The Vectors Live?
+
+Finding the closest vectors means comparing the question's vector with stored vectors. Comparing against every stored vector works for a few thousand chunks and becomes too slow for millions. A vector database is a database built to store vectors and find the ones closest to a given vector quickly. It uses approximate nearest neighbor search, which organizes the vectors ahead of time so that very close matches can be found without checking every vector, giving up a small amount of accuracy for a large gain in speed. Options range from dedicated vector databases to vector extensions for ordinary databases, such as pgvector for PostgreSQL.
+
+### Why Does Each Chunk Carry Metadata?
+
+**The closest chunk is not always a chunk that should be returned.** It can come from an outdated version of a policy, from the wrong department, or from a document the user is not allowed to see. Metadata lets the search filter on those facts alongside ranking by similarity:
+
+- **By date or version,** to return only the current version of a policy.
+- **By source or department,** to search only the engineering wiki for an engineering question.
+- **By permission,** to return only chunks the current user is allowed to see.
+
+Here is why the permission filter matters. A company indexes all its HR documents into one store, including two chunks like these:
+
+```
+Chunk 1 (Leave Policy)
+  text:     "Employees are entitled to 15 working days of leave following the birth of a child."
+  metadata: { source: "Leave Policy", allowed: ["all-employees"] }
+Chunk 2 (Salary Bands, confidential)
+  text:     "Senior Engineer: ₹38–52 lakh per year. Staff Engineer: ₹55–75 lakh per year."
+  metadata: { source: "Salary Bands", allowed: ["hr-team"] }
+```
+
+An intern, who is not on the HR team, asks "What's the salary range for a senior engineer here?", and Chunk 2 is the closest match. There are four places to stop it:
+
+1. **Filter during search.** The search only considers chunks whose `allowed` list includes one of the user's groups, taken from the logged-in session and never from anything the user types. For the intern, Chunk 2 is never a candidate, so it cannot be retrieved or leaked. This is called permission-aware retrieval, and it is the defense to rely on.
+2. **Filter after search, before the model.** Code removes retrieved chunks the user may not see. It also keeps Chunk 2 away from the model, but it wastes results: if four of the top five chunks are removed, the model answers from one. It works best as a second check on top of the first.
+3. **Leave confidential documents out of the index.** For data nobody should reach through the assistant, this is the safest choice, but here it would also block the HR team. Separate indexes for separate audiences are a common alternative.
+4. **Instruct the model in the system prompt.** If Chunk 2 reaches the context, the model has the salary bands, and an instruction not to share them is only text. A cleverly worded question, or an instruction planted in another retrieved document, can get it to reveal them anyway.
+
+**Nothing the current user is not allowed to see should enter the context, because anything in the context can come out in the answer.**
+
+### How Does The Index Stay Current?
+
+The index is a copy of the documents, so it goes stale when a document changes and is not indexed again. When a document is updated, the pipeline deletes its old chunks and chunks, embeds, and stores the new version. Without the deletion, both versions stay in the store, and search can return either one.
+
+<!-- Sections still to come: hybrid search and reranking, retrieval as a tool, evaluating retrieval, failure modes. -->
