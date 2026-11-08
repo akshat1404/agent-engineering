@@ -156,6 +156,10 @@ Passage "maternity health coverage"      [0.2, 0.9]
 
 The passage about leave after a birth ranks first, and the year-end shutdown ranks last, even though it shares "time off" with the question.
 
+![Toy two-dimensional embeddings: the question and the passage about leave after a birth point in nearly the same direction](images/rag-embedding-space.png)
+
+*Image: `images/rag-embedding-space.png`*
+
 Direction is used instead of distance because the length of a vector tends to reflect things such as how long or wordy a text is, while its direction reflects what the text is about. A short passage and a long passage on the same topic can sit at different distances from the origin and still point the same way. Many embedding models also output vectors scaled to a length of 1, and for those, cosine similarity equals the dot product and ranking by distance gives the same order, so in practice the three measures often agree.
 
 ### How Does Semantic Search Answer The Question?
@@ -173,6 +177,10 @@ Passage C (year-end shutdown)          → 0.42
 ```
 
 The scores are illustrative. Passage A ranks first without containing the word "paternity", because its meaning is closest to the question.
+
+![Keyword search ranks the passage with the rare word first, while semantic search ranks the passage with the answer first](images/rag-keyword-vs-semantic.png)
+
+*Image: `images/rag-keyword-vs-semantic.png`*
 
 ### Where Is Semantic Search Weak?
 
@@ -242,6 +250,10 @@ RAG runs as two separate flows at different times. **Indexing runs ahead of time
 Indexing (ahead of time):  documents → parse → chunk → embed → store (vector + text + metadata)
 Querying (per question):   question → embed → search the store → top chunks → context → answer
 ```
+
+![Indexing runs ahead of time and fills the vector database; querying embeds each question and searches it](images/rag-pipeline.png)
+
+*Image: `images/rag-pipeline.png`*
 
 ### How Is Indexing Automated?
 
@@ -332,6 +344,10 @@ HR-POL-121 (allowances)    3 (2nd)    1 (4th)      4
 HR-POL-109 (equipment)     1 (4th)    2 (3rd)      3
 ```
 
+![Two ranked lists are merged by adding position points, and HR-POL-114 comes out first](images/rag-hybrid-merge.png)
+
+*Image: `images/rag-hybrid-merge.png`*
+
 HR-POL-114 is not first in the semantic list, but it does well in both lists, so it comes out on top, while HR-POL-121, which only the keyword search liked, drops down. **Hybrid search rewards chunks that both methods agree on.** The combined list is sorted by total, and the top few chunks are passed on, because an answer can need several chunks and the top one can still be wrong.
 
 In practice, the points come from reciprocal rank fusion, or RRF:
@@ -373,6 +389,10 @@ So production retrieval runs in two stages:
 Stage 1: hybrid search  → millions of chunks narrowed to the top 50   (fast, approximate)
 Stage 2: reranker       → those 50 scored again, top 5 kept           (slow, accurate)
 ```
+
+![Hybrid search narrows a million chunks to 50 candidates, and the reranker keeps the best 5](images/rag-two-stage.png)
+
+*Image: `images/rag-two-stage.png`*
 
 **The first stage makes the problem small enough for the second stage to be affordable.** The reranker can only reorder the chunks it is given, so the first stage has one job: get the right chunk somewhere into its 50. The second stage then makes sure that chunk ends up in the 5 that reach the model.
 
