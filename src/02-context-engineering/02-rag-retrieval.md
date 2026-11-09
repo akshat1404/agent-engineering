@@ -436,4 +436,85 @@ The right choice depends on the questions. **A public help bot for an airline**,
 
 **A fixed pipeline suits simple questions at high volume, and a search tool suits questions that need several searches or follow-ups.**
 
-<!-- Sections still to come: evaluating retrieval, failure modes. -->
+## How Do You Know Retrieval Is Working?
+
+A RAG answer can be wrong for two different reasons, and they need different fixes:
+
+1. **Retrieval failed.** The chunk with the answer never reached the top results, so the model could not have answered correctly. The fix lies in chunking, the embedding model, hybrid search, or the reranker.
+2. **Generation failed.** The right chunk was in the context, and the model misread it, ignored it, or added something that was not there. The fix lies in the prompt or the model.
+
+Checking only the final answers cannot tell the two apart, so **retrieval is measured on its own.**
+
+### What Does A Retrieval Test Set Look Like?
+
+A retrieval test set is a list of questions, each labeled with the chunks that contain its answer:
+
+```
+Question                                         Relevant chunks
+"How many days of paternity leave do I get?"     Leave Policy §4.1, Leave Policy §4.2
+"What does HR-POL-114 say about remote work?"    HR-POL-114 §1
+"Can I carry unused leave into next year?"       Leave Policy §6.3
+... (typically 50 to 200 questions)
+```
+
+The questions come from real users where possible, such as logs or support tickets, because invented questions tend to be easier than real ones. People label the relevant chunks. A model can propose labels, but a person checks them.
+
+### What Are Recall@k And Precision@k?
+
+Each question is run through retrieval, and the top results are compared with the labels. Using four quantities:
+
+```
+n = total chunks in the index
+r = chunks relevant to the question
+k = chunks retrieval returns (the top k)
+x = relevant chunks among those top k
+recall@k    = x / r
+precision@k = x / k
+```
+
+- **Recall@k is about missing things.** Of all the relevant chunks, what fraction appeared in the top k? It ignores irrelevant chunks entirely and only asks whether what was needed got through.
+- **Precision@k is about noise.** Of the k chunks returned, what fraction were relevant? It is low when the top k is full of chunks that do not help.
+
+For the paternity question with k = 5, two chunks are relevant, §4.1 and §4.2, and retrieval returns:
+
+```
+1. HR Portal Guide
+2. Leave Policy §4.1   relevant
+3. Industry survey
+4. Holiday Calendar
+5. Sick Leave Policy
+recall@5    = 1 / 2 = 0.5   (§4.2 was missed, so the one-year condition cannot reach the model)
+precision@5 = 1 / 5 = 0.2
+```
+
+Across the test set, each metric is averaged into one number, such as "recall@5 is 0.78", meaning that on average 78 percent of the chunks each answer needed made it into the top 5.
+
+Two properties follow from the formulas. **x can never exceed r or k,** so a question with eight relevant chunks can reach at most 5/8 recall at k = 5. And **raising k pushes the two metrics in opposite directions:** more slots give relevant chunks more chances to get in, so recall rises, while most of the added slots hold irrelevant chunks, so precision falls, and every extra chunk costs tokens and adds to context rot.
+
+**Recall is usually watched first, because a chunk that is not retrieved can never reach the model.** The reranker then improves precision within the retrieved set.
+
+### Can Better Recall Produce Worse Answers?
+
+The test set exists to compare changes: chunk size, embedding model, hybrid search, a reranker. Each change runs against the same questions, and the numbers decide whether it ships. One change shows why recall alone is not enough.
+
+The team raises the chunk size from 400 tokens to 1,000 and keeps k at 5. Recall@5 rises from 0.72 to 0.85, because each larger chunk covers more of the document, so the answer is inside the top 5 more often. In testing, the final answers get worse. Here is what a retrieved chunk looks like before and after:
+
+```
+Before (400 tokens): Leave Policy §4.1 Paternity Leave
+"Employees are entitled to 15 working days of leave following the birth of a child..."
+After (1,000 tokens): Leave Policy §4.1 to §4.4
+§4.1 Paternity leave: 15 working days...
+§4.2 Eligibility: employees with less than one year of service get 5 working days...
+§4.3 Maternity leave: 26 weeks...
+§4.4 Adoption leave: 12 weeks...
+```
+
+The larger chunks contain more information, not wrong information, and the extra information still hurts in three ways:
+
+1. **Context rot.** Retrieved text grows from 2,000 tokens to 5,000, and most of the added text is not about the question, so the model is less reliable at finding and using the one sentence that matters.
+2. **Distractors.** The larger chunk places four similar facts side by side, 15 days, 5 days, 26 weeks, and 12 weeks, all phrased the same way. The model can take the adoption figure or mix two sections, with no error. **Text that is related but not relevant is harder to tell apart than text that is obviously unrelated.**
+3. **Cost and latency.** Every question sends two and a half times as much retrieved text.
+
+Recall counts chunks, so it cannot see that each chunk now carries 1,000 tokens of which perhaps 150 matter. Recall went up while the share of useful text in the context went down. **A retrieval change is judged by the final answers as well as by recall,** because recall says whether the answer was retrievable, and only testing the answers says whether the model used it. Part 5 covers testing answers. Chunk size has a best middle point found by measuring both, and small-to-big retrieval from the chunking section keeps both benefits: small chunks for precise matching, with only the neighboring context that is needed added afterward.
+
+<!-- Sections still to come: failure modes. -->
