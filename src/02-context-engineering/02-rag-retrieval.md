@@ -554,3 +554,5 @@ The right behavior is to tell the user the answer was not found, instead of prod
 This section covered retrieval within a single question or task: finding the right passages among thousands of documents and putting only those into the context. The next section covers memory, information that has to survive after a conversation ends, such as a user's preferences or decisions made last week, which is stored outside the context and retrieved back into later conversations with many of the same techniques.
 
 Sources: [Introducing Contextual Retrieval, Anthropic](https://www.anthropic.com/news/contextual-retrieval)
+
+https://medium.com/gitconnected/rag-in-30-minutes-3773702ec539
